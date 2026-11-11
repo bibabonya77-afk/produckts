@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-f0ij1MmT9XVRRAX590NCJ2YQigZ3O+w0+ilcuLsiAZA=' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src https://world.openfoodfacts.org; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Khp0eQ/XgMJsBUpHNutmJa7tIQgfsU5vx8/mwFW5h9U=' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src https://world.openfoodfacts.org; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Продукты">
 <meta name="theme-color" content="#EEF2EC" media="(prefers-color-scheme: light)">
@@ -158,8 +158,11 @@ h1.page{font-size:24px;margin:18px 0 6px;font-weight:700}
 .addmeal.ok{background:var(--green);color:#fff}
 
 /* sheets */
-.veil{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center}
-.sheet{background:var(--surface);width:100%;max-width:640px;border-radius:22px 22px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px));max-height:92vh;overflow:auto}
+.veil{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain;touch-action:pan-y}
+.sheet{background:var(--surface);width:100%;max-width:640px;border-radius:22px 22px 0 0;padding:0 16px calc(18px + env(safe-area-inset-bottom,0px));max-height:calc(100vh - 40px);max-height:calc(100dvh - env(safe-area-inset-top,0px) - 12px);overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;transition:transform .2s ease}
+.sheet-top{position:sticky;top:0;z-index:3;background:var(--surface);margin:0 -16px 8px;padding:8px 16px 6px;display:flex;justify-content:center;align-items:center;min-height:44px;touch-action:none;cursor:grab}
+.grab{width:42px;height:5px;border-radius:3px;background:var(--line)}
+.sheet-x{position:absolute;right:10px;top:6px;width:34px;height:34px;border-radius:50%;border:0;background:var(--bg);color:var(--ink);font-size:17px;line-height:34px;padding:0;font-weight:700}
 .sheet h3{margin:0 0 4px;font-size:18px}
 .sheet .hint{font-size:13px;color:var(--muted);margin:0 0 12px}
 .field{display:flex;flex-direction:column;gap:4px;margin-top:10px;font-size:13px;color:var(--muted)}
@@ -775,9 +778,28 @@ document.getElementById("dprev").onclick=()=>{dview.setDate(dview.getDate()-1); 
 document.getElementById("dnext").onclick=()=>{dview.setDate(dview.getDate()+1); renderDiary();};
 
 const sheet=document.getElementById("sheet");
-function closeSheet(){ stopScan(); sheet.hidden=true; sheet.innerHTML=""; }
-function openSheet(html){ sheet.innerHTML=`<div class="veil"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`; sheet.hidden=false;
-  sheet.querySelector(".veil").addEventListener("click",e=>{ if(e.target.classList.contains("veil")) closeSheet(); }); }
+let lockY=0, locked=false;
+function lockBody(){ if(locked) return; locked=true; lockY=window.scrollY||0;
+  const b=document.body.style; b.position="fixed"; b.top=(-lockY)+"px"; b.left="0"; b.right="0"; b.width="100%"; b.overflow="hidden"; }
+function unlockBody(){ if(!locked) return; locked=false;
+  const b=document.body.style; b.position=""; b.top=""; b.left=""; b.right=""; b.width=""; b.overflow=""; window.scrollTo(0,lockY); }
+function closeSheet(){ stopScan(); sheet.hidden=true; sheet.innerHTML=""; unlockBody(); }
+function openSheet(html){
+  const prev=sheet.querySelector(".sheet"), keep=prev?prev.scrollTop:0, reopen=!sheet.hidden;
+  sheet.innerHTML=`<div class="veil"><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-top"><span class="grab" aria-hidden="true"></span><button class="sheet-x" aria-label="Закрыть">✕</button></div>${html}</div></div>`;
+  sheet.hidden=false; lockBody();
+  const sh=sheet.querySelector(".sheet"); if(reopen) sh.scrollTop=keep;
+  sheet.querySelector(".veil").addEventListener("click",e=>{ if(e.target.classList.contains("veil")) closeSheet(); });
+  sheet.querySelector(".sheet-x").addEventListener("click",closeSheet);
+  /* swipe down on the top bar, or on the sheet when it is scrolled to the top */
+  let y0=null, dy=0, fromTop=false;
+  sh.addEventListener("touchstart",e=>{ fromTop=!!e.target.closest(".sheet-top"); if(fromTop||sh.scrollTop<=0){ y0=e.touches[0].clientY; dy=0; } else y0=null; },{passive:true});
+  sh.addEventListener("touchmove",e=>{ if(y0==null) return; dy=e.touches[0].clientY-y0;
+    if(dy>0 && (fromTop||sh.scrollTop<=0)){ sh.style.transition="none"; sh.style.transform=`translateY(${dy}px)`; if(e.cancelable) e.preventDefault(); }
+    else if(!fromTop){ y0=null; sh.style.transform=""; } },{passive:false});
+  sh.addEventListener("touchend",()=>{ if(y0==null) return; sh.style.transition=""; if(dy>90) closeSheet(); else sh.style.transform=""; y0=null; });
+}
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !sheet.hidden) closeSheet(); });
 const num=v=>{const x=parseFloat(String(v).replace(",",".")); return isNaN(x)?null:x;};
 
 /* product form: per-100g values + grams */
